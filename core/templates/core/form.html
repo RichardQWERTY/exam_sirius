@@ -1,0 +1,27 @@
+{% extends 'core/base.html' %}
+{% block title %}{% if object %}Редактирование{% else %}Создание{% endif %}{% endblock %}
+
+{% block content %}
+<h1>{% if object %}Редактирование записи{% else %}Новая запись{% endif %}</h1>
+
+{% if form.non_field_errors %}
+    <div class="alert alert-danger">
+        {{ form.non_field_errors }}
+    </div>
+{% endif %}
+
+<form method="post" novalidate>
+    {% csrf_token %}
+    {% for field in form %}
+        <div class="mb-3">
+            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% if field.errors %}
+                <div class="text-danger small mt-1">{{ field.errors|striptags }}</div>
+            {% endif %}
+        </div>
+    {% endfor %}
+    <button type="submit" class="btn btn-success">Сохранить</button>
+    <a href="{% url 'index' %}" class="btn btn-secondary">Отмена</a>
+</form>
+{% endblock %}
