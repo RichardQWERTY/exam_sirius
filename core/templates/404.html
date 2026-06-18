@@ -1,0 +1,13 @@
+{% extends 'core/base.html' %}
+{% block title %}Страница не найдена{% endblock %}
+
+{% block content %}
+<div class="text-center py-5">
+    <h1 class="display-1 fw-bold">404</h1>
+    <p class="lead">Запись или страница не найдена.</p>
+    <div class="mt-4">
+        <a href="{% url 'index' %}" class="btn btn-primary">Вернуться к списку</a>
+        <a href="{% url 'create' %}" class="btn btn-outline-secondary">Добавить запись</a>
+    </div>
+</div>
+{% endblock %}

@@ -1,141 +1,324 @@
 # Универсальный Django-шаблон для квалификационного экзамена
 
 Готовая обвязка под задание «реализуйте бэкенд для управления данными».
-Вся инфраструктура (CRUD, админка, формы, список, middleware метрик,
-`.env`, `/ping/`, статика при `DEBUG=False`, тесты) **не зависит от модели**
-и подстраивается автоматически.
+Вся инфраструктура (CRUD, админка, формы, список, middleware метрик, `.env`,
+`/ping/`, статика при `DEBUG=False`, кастомная 404, тесты) **не зависит от
+модели** и подстраивается автоматически.
 
 > Под конкретный вариант ты редактируешь по сути **только `core/models.py`** —
 > описываешь поля и правила валидации. Форма, админка и таблица списка
 > строятся по модели сами.
 
-## Что внутри
+---
 
-```
-django_exam/
-├── manage.py
-├── requirements.txt
-├── .env                      # DEBUG, SECRET_KEY, параметры БД
-├── config/
-│   ├── settings.py           # читает .env (без зависимостей), whitenoise, middleware
-│   ├── urls.py               # /admin/, /ping/, собственный интерфейс
-│   └── wsgi.py / asgi.py
-└── core/
-    ├── models.py             # ⟵ ЕДИНСТВЕННЫЙ файл, который ты меняешь под вариант
-    ├── forms.py              # ModelForm fields="__all__" + bootstrap (универсально)
-    ├── admin.py              # list_display/search строятся по модели (универсально)
-    ├── views.py              # CRUD через псевдоним Model/ModelForm + /ping/
-    ├── urls.py               # index/create/update/delete
-    ├── middleware.py         # метрики 2xx/4xx/5xx -> metrics.log + консоль
-    ├── tests.py              # тест /ping/ == 200 (+ smoke-тесты, модель-агностичные)
-    └── templates/core/       # base/index/form/confirm_delete (Bootstrap, generic)
-```
+## 1. Быстрый старт
 
-## Запуск
+### Вариант А — одной командой (рекомендуется)
 
 ```bash
-cd django_exam
+./run.sh            # Linux / macOS
+run.bat             # Windows
+```
+Скрипт сам создаёт venv, ставит зависимости, применяет миграции, заводит
+суперпользователя **admin / admin** и поднимает сервер.
+
+### Вариант Б — вручную
+
+```bash
 python3 -m venv .venv
 source .venv/bin/activate            # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-
-python manage.py makemigrations
 python manage.py migrate
 python manage.py createsuperuser
 python manage.py runserver
 ```
 
-- Админка: http://127.0.0.1:8000/admin/
+Адреса:
 - Свой интерфейс: http://127.0.0.1:8000/
+- Админка: http://127.0.0.1:8000/admin/
 - Тест-эндпоинт: http://127.0.0.1:8000/ping/
-
-## Проверка перед сдачей
-
-```bash
-python manage.py test            # /ping/ -> 200 (+ smoke)
-python manage.py showmigrations  # миграции применены
-```
-Метрики: открой несколько страниц — статистика в консоли и в `metrics.log`.
-
-## Статика при DEBUG=False (чтобы админка была со стилями)
-
-```bash
-python manage.py collectstatic --noinput
-# в .env: DEBUG=False
-python manage.py runserver
-```
-Стили админки отдаёт WhiteNoise. После проверки верни `DEBUG=True`.
 
 ---
 
-# Как адаптировать под свой вариант
+## 2. Выбор готового варианта
 
-## Шаг 1. Описать поля в `core/models.py`
+В папке `variants/` лежат готовые модели:
+- `employees` — сотрудники (имя, должность, дата приёма, зарплата, email);
+- `posts` — посты блога (заголовок, текст, дата публикации, просмотры, флаг);
+- `example` — нейтральный пример со всеми типами полей (стоит по умолчанию).
 
-Меняешь поля класса `Item` под таблицу из задания. Шпаргалка по типам:
+Переключиться:
+
+```bash
+python setup_variant.py
+```
+Скрипт спросит номер варианта, подставит модель в `core/models.py`, **сбросит
+и пересоздаст миграции и базу**, заведёт суперпользователя admin / admin.
+После него остаётся `python manage.py runserver`.
+
+> Свой вариант: создай файл `variants/моё.py` (по образцу существующих) — он
+> сразу появится в меню скрипта. Класс модели всегда должен называться `Item`.
+
+---
+
+## 3. Как адаптировать модель под любой вариант вручную
+
+Редактируешь **только `core/models.py`** (класс `Item`). Остальное трогать не нужно.
+
+### 3.1. Типы полей — шпаргалка
 
 | В задании | Поле модели |
 |-----------|-------------|
-| VARCHAR(n), текст | `models.CharField("Метка", max_length=n)` |
-| Длинный текст | `models.TextField("Метка", blank=True)` |
+| VARCHAR(n) | `models.CharField("Метка", max_length=n)` |
+| TEXT (длинный текст) | `models.TextField("Метка")` |
 | INTEGER | `models.IntegerField("Метка")` |
+| Целое ≥ 0 | `models.IntegerField("Метка", validators=[MinValueValidator(0)])` |
 | Целое > 0 | `models.PositiveIntegerField("Метка", validators=[MinValueValidator(1)])` |
 | DECIMAL(10,2) | `models.DecimalField("Метка", max_digits=10, decimal_places=2)` |
-| TIMESTAMP (вводимый) | `models.DateTimeField("Метка")` |
+| DATE (только дата) | `models.DateField("Метка")` |
+| TIMESTAMP (дата+время) | `models.DateTimeField("Метка")` |
 | Дата создания (авто) | `models.DateTimeField("Создано", auto_now_add=True)` |
-| Уникальное поле | добавь `unique=True` |
-| Необязательное | добавь `blank=True` (для текста) / `null=True, blank=True` |
-| Логический флаг | `models.BooleanField("Метка", default=False)` |
+| BOOLEAN (флаг) | `models.BooleanField("Метка", default=False)` |
+| EMAIL (проверка формата) | `models.EmailField("Email", max_length=100)` |
 
-`unique=True` сам даёт ошибку при дубликате (в форме и в админке) — отдельно проверять не надо.
+Модификаторы (добавляются в скобки через запятую):
+- `unique=True` — поле уникально (дубликат → ошибка в форме и админке, отдельно проверять не надо);
+- `blank=True` — необязательно в форме (для текста);
+- `null=True, blank=True` — необязательно в форме и в БД (для чисел/дат).
 
-## Шаг 2. Прописать валидацию в `clean()`
+### 3.2. Значения по умолчанию (default)
 
-Метод `clean()` модели вызывается и формой, и админкой. Типовые правила:
+| Что нужно | Как написать |
+|-----------|--------------|
+| Дата по умолчанию = сегодня | `models.DateField("Дата", default=timezone.localdate)` |
+| Дата+время по умолчанию = сейчас | `models.DateTimeField("Когда", default=timezone.now)` |
+| Число по умолчанию = 0 | `models.IntegerField("Просмотры", default=0)` |
+| Флаг по умолчанию = False | `models.BooleanField("Опубликован", default=False)` |
+| Текст по умолчанию | `models.CharField("Статус", max_length=20, default="новый")` |
+
+Для дат нужен импорт `from django.utils import timezone`.
+Важно: передаётся **функция без скобок** (`default=timezone.localdate`, а не
+`timezone.localdate()`), иначе дата «застынет» на моменте запуска сервера.
+Значение из `default` автоматически подставится в форму создания.
+
+### 3.3. Валидация — пишется в методе `clean()`
+
+`clean()` вызывается и формой (свой интерфейс), и админкой — правила работают везде.
+Ключ в `ValidationError({...})` — это **имя поля**, под которым покажется сообщение.
 
 ```python
+from django.utils import timezone   # нужен для проверок с датами
+
 def clean(self):
-    # текст не пустой (и не из одних пробелов)
+    # 1) текст не пустой (и не из одних пробелов)
     if self.name:
         self.name = self.name.strip()
     if not self.name:
         raise ValidationError({"name": "Поле не может быть пустым."})
 
-    # число строго больше 0
-    if self.amount is not None and self.amount <= 0:
-        raise ValidationError({"amount": "Значение должно быть больше 0."})
+    # 2) число строго больше 0
+    if self.price is not None and self.price <= 0:
+        raise ValidationError({"price": "Значение должно быть больше 0."})
 
-    # дата только в будущем (нужно: from django.utils import timezone)
-    if self.start_at and self.start_at <= timezone.now():
-        raise ValidationError({"start_at": "Дата должна быть в будущем."})
+    # 3) число не отрицательное (>= 0)
+    if self.views is not None and self.views < 0:
+        raise ValidationError({"views": "Значение не может быть отрицательным."})
 
-    # дата только в прошлом
-    if self.birth_date and self.birth_date > timezone.now().date():
-        raise ValidationError({"birth_date": "Дата не может быть в будущем."})
+    # 4) дата НЕ в будущем (для DateField; дата приёма, публикации и т.п.)
+    if self.hire_date and self.hire_date > timezone.localdate():
+        raise ValidationError({"hire_date": "Дата не может быть в будущем."})
+
+    # 5) дата ТОЛЬКО в будущем (для DateTimeField; мероприятие и т.п.)
+    if self.event_date and self.event_date <= timezone.now():
+        raise ValidationError({"event_date": "Дата должна быть в будущем."})
+
+    # 6) email содержит @
+    if self.email and "@" not in self.email:
+        raise ValidationError({"email": "Email должен содержать символ @."})
 ```
 
-Ключ в словаре `ValidationError({...})` — это **имя поля**, под которым в форме
-покажется сообщение.
+> Дата: `DateField` сравнивай с `timezone.localdate()` (только дата),
+> `DateTimeField` — с `timezone.now()` (дата и время).
 
-## Шаг 3. Пересоздать миграции
+### 3.4. Пересоздать миграции после правки модели
 
+После любого изменения полей модели миграции надо пересоздать.
+
+**Полный сброс (надёжнее всего на экзамене):**
 ```bash
-rm core/migrations/0001_initial.py
+rm core/migrations/0001_initial.py        # Windows: del core\migrations\0001_initial.py
+rm db.sqlite3                             # Windows: del db.sqlite3
+python manage.py makemigrations
+python manage.py migrate
+```
+(Удаляй только файлы вида `0001_initial.py`, не трогай `__init__.py`.)
+
+**Без удаления данных (если просто добавил поле):**
+```bash
 python manage.py makemigrations
 python manage.py migrate
 ```
 
-## Готово
+---
 
-Менять `forms.py`, `admin.py`, `views.py`, шаблоны и `urls.py` **не нужно** —
-они работают по любой модели:
-- форма берёт все редактируемые поля (`fields="__all__"`), даты получают
-  виджет-календарь, поля — стили Bootstrap;
-- админка показывает все поля в списке, ищет по текстовым, поля `auto_now*`
-  делает read-only;
-- таблица на главной строит колонки по `verbose_name` полей.
+## 4. Проверка перед сдачей
 
-Если в `models.py` переименуешь класс `Item`, поправь только импорт в двух
-строках `core/views.py` (`Item as Model`, `ItemForm as ModelForm`) и в
-`core/forms.py` / `core/admin.py`.
+```bash
+python manage.py test            # /ping/ -> 200 (+ smoke-тесты)
+python manage.py showmigrations  # миграции применены
+```
+Метрики (middleware): открой несколько страниц — статистика печатается в
+консоль и пишется в `metrics.log` (общее число, 2xx, 4xx, 5xx).
 
+### Статика при DEBUG=False (чтобы админка была со стилями и работала 404)
+
+```bash
+python manage.py collectstatic --noinput
+# в .env поставь: DEBUG=False
+python manage.py runserver
+```
+Стили отдаёт WhiteNoise. Кастомная страница 404 показывается только при
+`DEBUG=False` (при `DEBUG=True` Django показывает свою отладочную). После
+проверки верни `DEBUG=True`.
+
+---
+
+## 5. Куда смотрит комиссия (оценочный лист)
+
+| № | Критерий | Файл |
+|---|----------|------|
+| 1 | Модель + миграции | `core/models.py` |
+| 2 | CRUD через админку | `core/admin.py` |
+| 3 | Валидация | `models.py clean()` |
+| 4 | 404 | `views.py` + `core/templates/404.html` |
+| 5 | Middleware метрик | `core/middleware.py` |
+| 6 | Конфиг через `.env` | `.env` + `config/settings.py` |
+| 7 | Тест `/ping/` | `core/tests.py` |
+| 8 | Статика при `DEBUG=False` | `settings.py` (WhiteNoise) |
+| 9–10 | Веб-интерфейс (доп.) | `core/templates/`, `views.py`, `urls.py` |
+
+---
+
+## 6. Как устроен код (объяснение для защиты)
+
+### Структура
+```
+django_exam/
+├── run.sh / run.bat          # запуск одной командой
+├── setup_variant.py          # выбор готового варианта модели
+├── variants/                 # готовые модели (employees, posts, example)
+├── manage.py                 # точка входа Django
+├── .env                      # DEBUG, SECRET_KEY, параметры БД
+├── config/
+│   ├── settings.py           # все настройки; читает .env
+│   ├── urls.py               # корневые маршруты: /admin/, /ping/, /
+│   └── wsgi.py / asgi.py      # точки входа для сервера
+└── core/                     # приложение с логикой
+    ├── models.py             # модель + валидация
+    ├── forms.py              # форма для своего интерфейса
+    ├── admin.py              # настройка админки
+    ├── views.py              # обработчики страниц (CRUD + /ping/)
+    ├── urls.py               # маршруты приложения
+    ├── middleware.py         # подсчёт метрик запросов
+    ├── tests.py              # тесты
+    └── templates/            # HTML-шаблоны (Bootstrap)
+```
+
+### settings.py — конфигурация
+В начале — мини-загрузчик `.env`: если установлен `python-dotenv`, использует
+его; если нет — читает файл сам (поэтому работает даже без интернета).
+`SECRET_KEY`, `DEBUG`, параметры БД берутся из `.env` через функции `env()` /
+`env_bool()`. БД по умолчанию SQLite; если в `.env` указать `DB_ENGINE=postgres`,
+подключится PostgreSQL. В `MIDDLEWARE` подключены WhiteNoise (раздаёт статику при
+`DEBUG=False`) и наш `MetricsMiddleware`.
+
+### models.py — данные и валидация
+Класс `Item` описывает таблицу (поля = столбцы). У полей стоят валидаторы
+(`MinValueValidator` и т.п.), а метод `clean()` содержит правила, которые сложно
+выразить одним валидатором (непустой текст, дата не в будущем, наличие `@`).
+`clean()` вызывается перед сохранением и формой, и админкой — поэтому проверки
+едины для обоих интерфейсов. `created_at` с `auto_now_add=True` ставится
+автоматически при создании.
+
+### forms.py — форма своего интерфейса
+`ItemForm` — это `ModelForm` с `fields="__all__"`, т.е. форма строится по всем
+редактируемым полям модели автоматически. В `__init__` каждому полю
+проставляется CSS-класс Bootstrap: обычным — `form-control`, чекбоксам —
+`form-check-input`, а полям-датам подставляется HTML5-виджет календаря
+(`type="date"` / `datetime-local`). Благодаря этому форма работает с любой
+моделью без правок.
+
+### admin.py — админка
+`ItemAdmin` через методы `get_list_display` / `get_search_fields` /
+`get_readonly_fields` сам определяет, какие столбцы показывать в списке, по каким
+полям искать и какие поля сделать только для чтения (`created_at`). Тоже
+универсально для любой модели.
+
+### views.py — обработчики
+`Model` и `ModelForm` — псевдонимы (`Item as Model`), чтобы остальной код не
+зависел от имени класса. Функции:
+- `ping_view` — отдаёт `pong` со статусом 200 (для теста);
+- `list_view` — строит таблицу: вытаскивает поля модели и формирует
+  заголовки/строки, поэтому колонки подстраиваются под модель;
+- `create_view` / `update_view` — показывают форму; при ошибке валидации
+  возвращают её обратно со статусом **400** и сообщением, при успехе —
+  редирект на список;
+- `update_view` / `delete_view` — используют `get_object_or_404`, поэтому
+  несуществующая запись даёт **404**.
+
+### middleware.py — метрики
+`MetricsMiddleware` оборачивает каждый запрос: после получения ответа смотрит
+его статус-код и увеличивает счётчики (всего / 2xx / 4xx / 5xx). Счётчики —
+классовые (общие на весь процесс), доступ к ним под `Lock`. Накопленная строка
+печатается в консоль и дописывается в `metrics.log`.
+
+### urls.py — маршруты
+`config/urls.py` подключает админку (`/admin/`), `/ping/` и приложение `core`.
+`core/urls.py` задаёт CRUD-маршруты: `index` (список), `create`, `update`,
+`delete`. Имена маршрутов используются в шаблонах через `{% url '...' %}`.
+
+### templates/ — интерфейс
+`core/base.html` — каркас с Bootstrap и блоком вывода сообщений
+(`messages`). Остальные наследуются от него: `index.html` (список, колонки
+строятся циклом), `form.html` (форма; чекбоксы рендерятся отдельной разметкой,
+чтобы корректно выбирались), `confirm_delete.html` (подтверждение удаления),
+`404.html` (страница ошибки с кнопкой возврата к списку).
+
+---
+
+## 7. Чеклист готовности (самооценка по баллам)
+
+Что уже реализовано в шаблоне — и что нужно **сделать руками на защите**, чтобы
+не потерять баллы.
+
+### Базовая часть — 80 баллов
+
+| ✓ | № | Критерий | Баллы | Что от тебя требуется |
+|---|---|----------|:-----:|------------------------|
+| ✅ | 1 | Модель создана, миграции выполнены | 10 | описать поля под вариант + `makemigrations && migrate` |
+| ✅ | 2 | CRUD через админку | 20 | зайти в `/admin/`, показать создание/правку/удаление/список |
+| ✅ | 3 | Валидация данных | 10 | правила в `clean()` под вариант (см. раздел 3.3) |
+| ✅ | 4 | Обработка 404 | 5 | готово (`get_object_or_404` + `404.html`) |
+| ✅ | 5 | Middleware метрик (2xx/4xx/5xx) | 15 | готово (консоль + `metrics.log`) |
+| ✅ | 6 | Конфиг через `.env` | 5 | готово (`.env`: DEBUG, SECRET_KEY, БД) |
+| ✅ | 7 | Тест `GET /ping/` → 200 | 5 | показать `python manage.py test` |
+| ✅ | 8 | Статика при `DEBUG=False` | 10 | **`collectstatic` + `DEBUG=False` в `.env`** перед показом |
+| | | **Итого база** | **80** | |
+
+### Дополнительная часть (фронтенд) — 20 баллов
+
+| ✓ | № | Критерий | Баллы | Что от тебя требуется |
+|---|---|----------|:-----:|------------------------|
+| ✅ | 9 | Веб-интерфейс: список, формы, подтверждение удаления | 15 | готово (`/`, `create`, `update`, `delete`) |
+| ✅ | 10 | Интерфейс адаптирован под модель (названия полей, ссылки) | 5 | готово — колонки и поля строятся по модели сами |
+| | | **Итого доп.** | **20** | |
+
+### Максимум: 100 баллов → «отлично» (80–100)
+
+### ⚠️ Не забыть на защите (за это легко потерять баллы)
+1. **Создать суперпользователя** (`createsuperuser` или `admin/admin` через `run.sh`) — иначе не зайти в админку (критерий 2).
+2. **Критерий 8:** `python manage.py collectstatic --noinput`, затем `DEBUG=False` в `.env`, перезапустить сервер — проверить, что **админка со стилями**.
+3. **Показать метрики:** открыть несколько страниц и показать вывод в консоли / файл `metrics.log` (критерий 5).
+4. **Запустить тест** `python manage.py test` при комиссии (критерий 7).
+5. **Показать `.env`** и где он читается в `settings.py` (критерий 6).
+6. После проверки статики вернуть `DEBUG=True` — удобнее отвечать на вопросы.
