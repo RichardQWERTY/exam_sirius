@@ -2,8 +2,8 @@ from django.contrib import messages
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 
-from .models import Item as Model
-from .forms import ItemForm as ModelForm
+from .models import Test as Model
+from .forms import TestForm as ModelForm
 
 
 def ping_view(request):
